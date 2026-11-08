@@ -2,6 +2,7 @@ import { Suspense } from 'react';
 import { redirect } from 'next/navigation';
 import { fetchServerGroups } from '@/lib/api-server';
 import NoChannelsView from '@/modules/groups/no-channels-view';
+import { ChannelChatSkeleton } from '@/modules/core/skeletons';
 
 async function ChannelsIndexContent() {
   const groups = await fetchServerGroups();
@@ -15,7 +16,7 @@ async function ChannelsIndexContent() {
 
 export default function ChannelsPage() {
   return (
-    <Suspense fallback={<div className="flex-1 bg-white h-screen" />}>
+    <Suspense fallback={<ChannelChatSkeleton />}>
       <ChannelsIndexContent />
     </Suspense>
   );

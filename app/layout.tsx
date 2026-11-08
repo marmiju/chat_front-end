@@ -15,6 +15,13 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "NexusPulse — Real-Time Chat Platform",
   description: "Next-generation real-time chat platform powered by Socket.IO, group channels, per-user read receipts, and end-to-end security.",
+  icons: {
+    icon: [
+      { url: "/favicon.svg", type: "image/svg+xml" },
+    ],
+    shortcut: ["/favicon.svg"],
+    apple: ["/favicon.svg"],
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

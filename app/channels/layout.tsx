@@ -2,6 +2,7 @@ import { Suspense } from 'react';
 import { redirect } from 'next/navigation';
 import { getServerSession, fetchServerGroups } from '@/lib/api-server';
 import WorkspaceProvider from '@/modules/workspace/workspace-provider';
+import { WorkspaceSkeleton } from '@/modules/core/skeletons';
 
 export const metadata = {
   title: 'Workspace | NexusPulse',
@@ -13,13 +14,14 @@ async function AuthenticatedWorkspace({
 }: {
   children: React.ReactNode;
 }) {
-  const { token, user } = await getServerSession();
+  const [{ token, user }, groups] = await Promise.all([
+    getServerSession(),
+    fetchServerGroups(),
+  ]);
 
   if (!token) {
     redirect('/login');
   }
-
-  const groups = await fetchServerGroups();
 
   return (
     <WorkspaceProvider initialGroups={groups} currentUser={user}>
@@ -34,7 +36,7 @@ export default function ChannelsLayout({
   children: React.ReactNode;
 }) {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-white" />}>
+    <Suspense fallback={<WorkspaceSkeleton />}>
       <AuthenticatedWorkspace>{children}</AuthenticatedWorkspace>
     </Suspense>
   );

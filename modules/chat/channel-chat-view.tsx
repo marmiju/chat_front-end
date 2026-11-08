@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { useWorkspace } from '@/modules/workspace/workspace-provider';
 import UserAvatar from '@/modules/core/user-avatar';
+import { MessageListSkeleton } from '@/modules/core/skeletons';
 import ChannelDetailsDrawer from '@/modules/groups/channel-details-drawer';
 import AddMemberModal from '@/modules/groups/add-member-modal';
 
@@ -50,6 +51,9 @@ export default function ChannelChatView({
   const onlineUsers = propOnlineUsers || contextOnlineUsers;
   const activeGroup = groups.find((g) => g._id === channel._id) || channel;
   const [messages, setMessages] = useState<Message[]>(initialMessages || []);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(
+    !initialMessages || initialMessages.length === 0
+  );
   const [inputText, setInputText] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -81,6 +85,7 @@ export default function ChannelChatView({
   useEffect(() => {
     markedReadIdsRef.current.clear();
     setMessages(initialMessages || []);
+    setIsLoadingMessages(!initialMessages || initialMessages.length === 0);
     scrollToBottom(false);
 
     let cancelled = false;
@@ -91,7 +96,12 @@ export default function ChannelChatView({
           setMessages([...fresh].reverse());
         }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoadingMessages(false);
+        }
+      });
 
     groupsService
       .getGroupById(channel._id)
@@ -514,7 +524,9 @@ export default function ChannelChatView({
               </div>
 
               {/* Messages */}
-              {messages.length > 0 ? (
+              {isLoadingMessages && messages.length === 0 ? (
+                <MessageListSkeleton />
+              ) : messages.length > 0 ? (
                 messages.map((msg, index) => {
                   const prevMsg = index > 0 ? messages[index - 1] : null;
                   const currentDay = msg.createdAt

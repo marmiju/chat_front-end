@@ -6,6 +6,7 @@ import {
   fetchServerMessages,
 } from '@/lib/api-server';
 import ChannelChatView from '@/modules/chat/channel-chat-view';
+import { ChannelChatSkeleton } from '@/modules/core/skeletons';
 
 interface ChannelPageProps {
   params: Promise<{
@@ -39,16 +40,7 @@ async function ChannelDetailContent({ params }: ChannelPageProps) {
 
 export default function ChannelDetailPage({ params }: ChannelPageProps) {
   return (
-    <Suspense
-      fallback={
-        <div className="flex-1 flex flex-col bg-white h-screen">
-          <div className="h-14 border-b border-zinc-100 px-5 flex items-center">
-            <div className="h-4 w-32 bg-zinc-100 rounded animate-pulse" />
-          </div>
-          <div className="flex-1" />
-        </div>
-      }
-    >
+    <Suspense fallback={<ChannelChatSkeleton />}>
       <ChannelDetailContent params={params} />
     </Suspense>
   );
