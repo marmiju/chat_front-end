@@ -20,6 +20,8 @@ import {
   Settings,
   LogOut,
   MessageSquarePlus,
+  Bell,
+  BellOff,
 } from 'lucide-react';
 import CreateChannelModal from './create-channel-modal';
 import QuickSwitcherModal from './quick-switcher-modal';
@@ -38,7 +40,14 @@ export default function ChannelsSidebar({
 }: ChannelsSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const { addGroup, openProfileModal } = useWorkspace();
+  const {
+    addGroup,
+    openProfileModal,
+    unreadCounts,
+    pushEnabled,
+    pushPermission,
+    togglePushNotifications,
+  } = useWorkspace();
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isNewDMModalOpen, setIsNewDMModalOpen] = useState(false);
   const [isQuickSwitcherOpen, setIsQuickSwitcherOpen] = useState(false);
@@ -123,6 +132,31 @@ export default function ChannelsSidebar({
             <div className="flex items-center gap-1">
               <button
                 type="button"
+                onClick={togglePushNotifications}
+                title={
+                  pushPermission === 'denied'
+                    ? 'Notifications blocked in browser settings'
+                    : pushEnabled
+                    ? 'Push notifications enabled (click to mute)'
+                    : 'Enable push notifications'
+                }
+                className={`w-7 h-7 rounded-md flex items-center justify-center transition-colors cursor-pointer relative ${
+                  pushEnabled
+                    ? 'text-zinc-900 hover:bg-zinc-200/60'
+                    : 'text-zinc-400 hover:text-zinc-900 hover:bg-zinc-200/60'
+                }`}
+              >
+                {pushEnabled ? (
+                  <>
+                    <Bell className="w-4 h-4" />
+                    <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  </>
+                ) : (
+                  <BellOff className="w-4 h-4" />
+                )}
+              </button>
+              <button
+                type="button"
                 onClick={() => setIsQuickSwitcherOpen(true)}
                 title="Search conversations"
                 className="w-7 h-7 rounded-md text-zinc-500 hover:text-zinc-900 hover:bg-zinc-200/60 flex items-center justify-center transition-colors cursor-pointer"
@@ -162,22 +196,34 @@ export default function ChannelsSidebar({
                 {channelGroups.length > 0 ? (
                   channelGroups.map((group) => {
                     const isActive = pathname === `/channels/${group._id}`;
+                    const unread = unreadCounts[group._id] || 0;
                     return (
                       <Link
                         key={group._id}
                         href={`/channels/${group._id}`}
-                        className={`flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[13px] transition-colors ${
+                        className={`flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-md text-[13px] transition-colors ${
                           isActive
                             ? 'bg-zinc-200/80 text-zinc-950 font-medium'
+                            : unread > 0
+                            ? 'text-zinc-950 font-semibold hover:bg-zinc-100'
                             : 'text-zinc-600 hover:text-zinc-950 hover:bg-zinc-100'
                         }`}
                       >
-                        <Hash
-                          className={`w-3.5 h-3.5 shrink-0 ${
-                            isActive ? 'text-zinc-900' : 'text-zinc-400'
-                          }`}
-                        />
-                        <span className="truncate">{group.name}</span>
+                        <div className="flex items-center gap-2 truncate">
+                          <Hash
+                            className={`w-3.5 h-3.5 shrink-0 ${
+                              isActive || unread > 0
+                                ? 'text-zinc-900'
+                                : 'text-zinc-400'
+                            }`}
+                          />
+                          <span className="truncate">{group.name}</span>
+                        </div>
+                        {!isActive && unread > 0 && (
+                          <span className="px-1.5 py-0.5 rounded-full bg-zinc-900 text-white text-[10px] font-medium leading-none shrink-0">
+                            {unread > 99 ? '99+' : unread}
+                          </span>
+                        )}
                       </Link>
                     );
                   })
@@ -216,26 +262,36 @@ export default function ChannelsSidebar({
                   const partnerName =
                     partner?.displayName || partner?.username || dmGroup.name;
                   const online = partner ? isOnline(partner._id) : false;
+                  const unread = unreadCounts[dmGroup._id] || 0;
 
                   return (
                     <Link
                       key={dmGroup._id}
                       href={`/channels/${dmGroup._id}`}
-                      className={`flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-[13px] transition-colors ${
+                      className={`flex items-center justify-between gap-2.5 px-2.5 py-1.5 rounded-md text-[13px] transition-colors ${
                         isActive
                           ? 'bg-zinc-200/80 text-zinc-950 font-medium'
+                          : unread > 0
+                          ? 'text-zinc-950 font-semibold hover:bg-zinc-100'
                           : 'text-zinc-600 hover:text-zinc-950 hover:bg-zinc-100'
                       }`}
                     >
-                      <UserAvatar
-                        name={partnerName}
-                        avatar={partner?.avatar}
-                        size="xs"
-                        variant="subtle"
-                        isOnline={online}
-                        showStatusDot={true}
-                      />
-                      <span className="truncate">{partnerName}</span>
+                      <div className="flex items-center gap-2.5 truncate">
+                        <UserAvatar
+                          name={partnerName}
+                          avatar={partner?.avatar}
+                          size="xs"
+                          variant="subtle"
+                          isOnline={online}
+                          showStatusDot={true}
+                        />
+                        <span className="truncate">{partnerName}</span>
+                      </div>
+                      {!isActive && unread > 0 && (
+                        <span className="px-1.5 py-0.5 rounded-full bg-zinc-900 text-white text-[10px] font-medium leading-none shrink-0">
+                          {unread > 99 ? '99+' : unread}
+                        </span>
+                      )}
                     </Link>
                   );
                 })}

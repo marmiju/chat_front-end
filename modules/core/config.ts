@@ -4,6 +4,7 @@ export const APP_CONFIG = {
   BACKEND_INTERNAL_URL:
     process.env.BACKEND_INTERNAL_URL ||
     process.env.NEXT_PUBLIC_BACKEND_URL ||
+    process.env.BACKEND_URL ||
     'http://localhost:5000',
   COOKIE_TOKEN_NAME: 'chat_token',
   COOKIE_USER_NAME: 'chat_user',
