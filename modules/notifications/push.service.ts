@@ -194,11 +194,16 @@ export const pushService = {
 
     const targetUrl =
       payload.url || (payload.groupId ? `/channels/${payload.groupId}` : '/channels');
+    const tag = payload.messageId
+      ? `msg-${payload.messageId}`
+      : payload.groupId
+      ? `channel-${payload.groupId}`
+      : 'nexuspulse-msg';
 
     try {
       const n = new Notification(payload.title || 'NexusPulse', {
         body: payload.body,
-        tag: payload.groupId ? `channel-${payload.groupId}` : 'nexuspulse-msg',
+        tag,
       });
 
       n.onclick = () => {
@@ -214,9 +219,7 @@ export const pushService = {
         .then((reg) =>
           reg.showNotification(payload.title || 'NexusPulse', {
             body: payload.body,
-            tag: payload.groupId
-              ? `channel-${payload.groupId}`
-              : 'nexuspulse-msg',
+            tag,
             data: { url: targetUrl, groupId: payload.groupId },
           })
         )

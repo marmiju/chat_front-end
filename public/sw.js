@@ -22,7 +22,11 @@ self.addEventListener('push', (event) => {
 
   const title = payload.title || 'NexusPulse';
   const targetUrl = payload.url || (payload.groupId ? `/channels/${payload.groupId}` : '/channels');
-  const tag = payload.groupId ? `channel-${payload.groupId}` : 'nexuspulse-notification';
+  const tag = payload.messageId
+    ? `msg-${payload.messageId}`
+    : payload.groupId
+    ? `channel-${payload.groupId}`
+    : 'nexuspulse-notification';
 
   event.waitUntil(
     self.clients
@@ -45,7 +49,7 @@ self.addEventListener('push', (event) => {
         return self.registration.showNotification(title, {
           body: payload.body || 'You have a new message',
           tag,
-          renotify: true,
+          renotify: false,
           data: {
             url: targetUrl,
             groupId: payload.groupId,

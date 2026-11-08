@@ -360,14 +360,14 @@ export default function WorkspaceProvider({
         pushService.playChime();
       }
 
-      if (!isViewingChannel && !isTabHidden && !pushService.isMuted()) {
-        showToast(payload);
-      }
-
-      if (isTabHidden || !isViewingChannel) {
+      if (isTabHidden) {
+        // Tab is in the background or unfocused: show OS/browser notification only
         pushService.showNativeNotification(payload, (url) => {
           router.push(url);
         });
+      } else if (!isViewingChannel && !pushService.isMuted()) {
+        // User is actively inside the app on another channel: show in-app toast only
+        showToast(payload);
       }
     };
 
