@@ -32,10 +32,15 @@ export function getSocket(user?: User | null): Socket | null {
 
   if (!socketInstance) {
     connectedUserId = user._id;
+    const minimalUser = {
+      _id: user._id,
+      username: user.username,
+      email: user.email,
+    };
     socketInstance = io(APP_CONFIG.BACKEND_URL, {
       auth: {
         token: token || undefined,
-        user: JSON.stringify(user),
+        user: JSON.stringify(minimalUser),
       },
       transports: ['websocket', 'polling'],
       reconnectionAttempts: 10,

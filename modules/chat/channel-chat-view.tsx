@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Group, Message, User, OnlineUser } from '@/modules/core/types';
 import { chatService } from './chat.service';
 import {
+  groupsService,
   isDirectGroup,
   getDirectPartner,
   getGroupDisplayName,
@@ -11,22 +12,16 @@ import {
 import { getSocket } from '@/modules/core/socket-client';
 import {
   Hash,
-  Send,
+  ArrowUp,
   Info,
-  Users,
   Check,
   CheckCheck,
   Smile,
-  Bold,
-  Italic,
-  Code,
-  Link as LinkIcon,
-  Terminal,
   Loader2,
   UserPlus,
-  MessageSquare,
 } from 'lucide-react';
 import { useWorkspace } from '@/modules/workspace/workspace-provider';
+import UserAvatar from '@/modules/core/user-avatar';
 import ChannelDetailsDrawer from '@/modules/groups/channel-details-drawer';
 import AddMemberModal from '@/modules/groups/add-member-modal';
 
@@ -37,13 +32,21 @@ interface ChannelChatViewProps {
   onlineUsers?: OnlineUser[];
 }
 
+const QUICK_EMOJIS = ['👍', '❤️', '🎉', '🔥', '😂', '🙌'];
+
 export default function ChannelChatView({
   channel,
   initialMessages,
-  currentUser,
+  currentUser: propCurrentUser,
   onlineUsers: propOnlineUsers,
 }: ChannelChatViewProps) {
-  const { groups, onlineUsers: contextOnlineUsers } = useWorkspace();
+  const {
+    groups,
+    updateGroup,
+    currentUser: contextCurrentUser,
+    onlineUsers: contextOnlineUsers,
+  } = useWorkspace();
+  const currentUser = contextCurrentUser || propCurrentUser;
   const onlineUsers = propOnlineUsers || contextOnlineUsers;
   const activeGroup = groups.find((g) => g._id === channel._id) || channel;
   const [messages, setMessages] = useState<Message[]>(initialMessages || []);
@@ -51,17 +54,22 @@ export default function ChannelChatView({
   const [isSending, setIsSending] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isAddMemberOpen, setIsAddMemberOpen] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const markedReadIdsRef = useRef<Set<string>>(new Set());
 
   const isDirect = isDirectGroup(activeGroup);
   const directPartner = isDirect
     ? getDirectPartner(activeGroup, currentUser)
     : null;
   const displayName = getGroupDisplayName(activeGroup, currentUser);
+  const partnerDisplayTitle =
+    directPartner?.displayName || `@${displayName}`;
   const isPartnerOnline = Boolean(
-    directPartner && onlineUsers.some((u) => u.userId === directPartner._id)
+    directPartner &&
+      onlineUsers.some((u) => String(u.userId) === String(directPartner._id))
   );
 
   const scrollToBottom = (smooth = true) => {
@@ -71,13 +79,69 @@ export default function ChannelChatView({
   };
 
   useEffect(() => {
+    markedReadIdsRef.current.clear();
     setMessages(initialMessages || []);
     scrollToBottom(false);
-  }, [channel._id, initialMessages]);
+
+    let cancelled = false;
+    chatService
+      .getMessages(channel._id, 100)
+      .then((fresh) => {
+        if (!cancelled && Array.isArray(fresh)) {
+          setMessages([...fresh].reverse());
+        }
+      })
+      .catch(() => {});
+
+    groupsService
+      .getGroupById(channel._id)
+      .then((freshGroup) => {
+        if (!cancelled && freshGroup?._id) {
+          updateGroup(freshGroup);
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [channel._id, initialMessages, updateGroup]);
 
   useEffect(() => {
     scrollToBottom(true);
   }, [messages.length]);
+
+  // Automatically mark unread messages from other users as 'read' in real time
+  useEffect(() => {
+    if (!currentUser?._id || !messages.length) return;
+    const myId = String(currentUser._id);
+
+    const unreadIds = messages
+      .filter((m) => {
+        if (m.type === 'notification') return false;
+        const msgGroupId =
+          typeof m.group === 'string' ? m.group : m.group?._id;
+        if (msgGroupId && String(msgGroupId) !== String(channel._id)) {
+          return false;
+        }
+        const senderId = m.sender?._id ? String(m.sender._id) : '';
+        if (!senderId || senderId === myId) return false;
+
+        const myDelivery = m.deliveries?.find((d) => {
+          const dUserId = typeof d.user === 'string' ? d.user : d.user?._id;
+          return String(dUserId) === myId;
+        });
+
+        return myDelivery?.status !== 'read';
+      })
+      .map((m) => String(m._id))
+      .filter((id) => !markedReadIdsRef.current.has(id));
+
+    if (unreadIds.length > 0) {
+      unreadIds.forEach((id) => markedReadIdsRef.current.add(id));
+      chatService.markAsRead(currentUser, channel._id, unreadIds);
+    }
+  }, [channel._id, currentUser, messages]);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -85,36 +149,87 @@ export default function ChannelChatView({
     const socket = getSocket(currentUser);
     if (!socket) return;
 
-    chatService.setActiveGroup(currentUser, channel._id);
+    const syncActiveRoom = () => {
+      groupsService.joinGroupRoomSocket(currentUser, channel._id);
+      chatService.setActiveGroup(currentUser, channel._id);
+    };
 
-    const unreadMessageIds = messages
-      .filter((m) => m.sender?._id && m.sender._id !== currentUser._id)
-      .map((m) => m._id);
-
-    if (unreadMessageIds.length > 0) {
-      chatService.markAsRead(currentUser, channel._id, unreadMessageIds);
-    }
+    syncActiveRoom();
 
     const handleNewMessage = (newMsg: Message) => {
       const msgGroupId =
         typeof newMsg.group === 'string' ? newMsg.group : newMsg.group?._id;
-      if (msgGroupId === channel._id) {
+      if (String(msgGroupId) === String(channel._id)) {
         setMessages((prev) => {
-          if (prev.some((m) => m._id === newMsg._id)) return prev;
+          if (prev.some((m) => String(m._id) === String(newMsg._id))) {
+            return prev;
+          }
           return [...prev, newMsg];
         });
 
-        if (newMsg.sender?._id && newMsg.sender._id !== currentUser._id) {
-          chatService.markAsRead(currentUser, channel._id, [newMsg._id]);
+        if (
+          newMsg.sender?._id &&
+          String(newMsg.sender._id) !== String(currentUser._id)
+        ) {
+          markedReadIdsRef.current.add(String(newMsg._id));
+          chatService.markAsRead(currentUser, channel._id, [
+            String(newMsg._id),
+          ]);
         }
       }
     };
 
+    const statusRank: Record<string, number> = {
+      sent: 1,
+      delivered: 2,
+      read: 3,
+    };
+
+    const mergeMessageDeliveries = (
+      existingMsg: Message,
+      incomingMsg: Message
+    ): Message => {
+      if (!existingMsg.deliveries?.length) return incomingMsg;
+      if (!incomingMsg.deliveries?.length) return existingMsg;
+
+      const mergedDeliveries = incomingMsg.deliveries.map((incD) => {
+        const incUserId = String(
+          typeof incD.user === 'string' ? incD.user : incD.user?._id
+        );
+        const prevD = existingMsg.deliveries?.find((d) => {
+          const dUserId = String(
+            typeof d.user === 'string' ? d.user : d.user?._id
+          );
+          return dUserId === incUserId;
+        });
+
+        if (
+          prevD &&
+          (statusRank[prevD.status] || 0) > (statusRank[incD.status] || 0)
+        ) {
+          return prevD;
+        }
+        return incD;
+      });
+
+      return {
+        ...incomingMsg,
+        deliveries: mergedDeliveries,
+      };
+    };
+
     const handleUpdateMessage = (updatedMessages: Message[]) => {
-      if (!Array.isArray(updatedMessages)) return;
+      if (!Array.isArray(updatedMessages) || updatedMessages.length === 0)
+        return;
       setMessages((prev) => {
-        const updateMap = new Map(updatedMessages.map((m) => [m._id, m]));
-        return prev.map((m) => updateMap.get(m._id) || m);
+        const updateMap = new Map(
+          updatedMessages.map((m) => [String(m._id), m])
+        );
+        return prev.map((m) => {
+          const incoming = updateMap.get(String(m._id));
+          if (!incoming) return m;
+          return mergeMessageDeliveries(m, incoming);
+        });
       });
     };
 
@@ -139,17 +254,45 @@ export default function ChannelChatView({
       }
     };
 
+    const handleUserUpdated = (updatedUser: User) => {
+      if (!updatedUser?._id) return;
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.sender?._id === updatedUser._id
+            ? {
+                ...m,
+                sender: {
+                  ...m.sender,
+                  username: updatedUser.username || m.sender.username,
+                  email: updatedUser.email || m.sender.email,
+                  displayName: updatedUser.displayName,
+                  avatar: updatedUser.avatar,
+                  title: updatedUser.title,
+                  statusText: updatedUser.statusText,
+                },
+              }
+            : m
+        )
+      );
+    };
+
+    socket.on('connect', syncActiveRoom);
     socket.on('new_message', handleNewMessage);
     socket.on('newMessage', handleNewMessage);
     socket.on('updateMessage', handleUpdateMessage);
     socket.on('typing', handleTyping);
+    socket.on('user_updated', handleUserUpdated);
+    window.addEventListener('focus', syncActiveRoom);
 
     return () => {
       chatService.clearActiveGroup(currentUser);
+      socket.off('connect', syncActiveRoom);
       socket.off('new_message', handleNewMessage);
       socket.off('newMessage', handleNewMessage);
       socket.off('updateMessage', handleUpdateMessage);
       socket.off('typing', handleTyping);
+      socket.off('user_updated', handleUserUpdated);
+      window.removeEventListener('focus', syncActiveRoom);
     };
   }, [channel._id, currentUser]);
 
@@ -172,6 +315,7 @@ export default function ChannelChatView({
 
     setIsSending(true);
     setInputText('');
+    setShowEmojiPicker(false);
     chatService.emitTyping(currentUser, channel._id, false);
 
     try {
@@ -180,7 +324,8 @@ export default function ChannelChatView({
         content
       );
       setMessages((prev) => {
-        if (prev.some((m) => m._id === createdMessage._id)) return prev;
+        if (prev.some((m) => String(m._id) === String(createdMessage._id)))
+          return prev;
         return [...prev, createdMessage];
       });
     } catch (err) {
@@ -199,33 +344,29 @@ export default function ChannelChatView({
   };
 
   const renderDeliveryStatus = (msg: Message) => {
-    if (msg.sender?._id !== currentUser?._id) return null;
+    if (String(msg.sender?._id) !== String(currentUser?._id)) return null;
 
     if (!msg.deliveries || msg.deliveries.length === 0) {
       return (
-        <span
-          title="Sent"
-          className="inline-flex items-center gap-1 text-[10px] font-mono text-zinc-400"
-        >
-          <Check className="w-3.5 h-3.5 text-zinc-400" />
+        <span title="Sent" className="inline-flex items-center text-zinc-400">
+          <Check className="w-3.5 h-3.5" />
         </span>
       );
     }
 
     const recipientDeliveries = msg.deliveries.filter((d) => {
       const dUserId = typeof d.user === 'string' ? d.user : d.user?._id;
-      return dUserId !== currentUser._id;
+      return String(dUserId) !== String(currentUser?._id);
     });
 
     const isReadByAny = recipientDeliveries.some((d) => d.status === 'read');
     if (isReadByAny) {
       return (
         <span
-          title="Read"
-          className="inline-flex items-center gap-1 text-[10px] font-mono text-blue-600"
+          title="Seen"
+          className="inline-flex items-center gap-0.5 text-[11px] text-blue-600"
         >
-          <CheckCheck className="w-3.5 h-3.5 text-blue-600" />
-          <span>read</span>
+          <CheckCheck className="w-3.5 h-3.5" />
         </span>
       );
     }
@@ -237,21 +378,16 @@ export default function ChannelChatView({
       return (
         <span
           title="Delivered"
-          className="inline-flex items-center gap-1 text-[10px] font-mono text-zinc-500"
+          className="inline-flex items-center text-zinc-400"
         >
-          <CheckCheck className="w-3.5 h-3.5 text-zinc-500" />
-          <span>delivered</span>
+          <CheckCheck className="w-3.5 h-3.5" />
         </span>
       );
     }
 
     return (
-      <span
-        title="Sent"
-        className="inline-flex items-center gap-1 text-[10px] font-mono text-zinc-400"
-      >
-        <Check className="w-3.5 h-3.5 text-zinc-400" />
-        <span>sent</span>
+      <span title="Sent" className="inline-flex items-center text-zinc-400">
+        <Check className="w-3.5 h-3.5" />
       </span>
     );
   };
@@ -265,224 +401,249 @@ export default function ChannelChatView({
     }
   };
 
+  const formatDateDivider = (dateStr: string) => {
+    try {
+      const d = new Date(dateStr);
+      const today = new Date();
+      if (d.toDateString() === today.toDateString()) return 'Today';
+      const yesterday = new Date();
+      yesterday.setDate(today.getDate() - 1);
+      if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+      return d.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: d.getFullYear() !== today.getFullYear() ? 'numeric' : undefined,
+      });
+    } catch {
+      return '';
+    }
+  };
+
   const typingArray = Array.from(typingUsers);
 
   return (
     <div className="flex-1 flex flex-col h-full bg-white relative overflow-hidden">
-      {/* Top Bar */}
-      <header className="h-14 px-6 border-b border-zinc-200 bg-white flex items-center justify-between shrink-0 z-10">
-        <div className="flex items-center gap-3 truncate">
+      {/* Minimalist Top Header */}
+      <header className="h-14 px-6 border-b border-zinc-200/80 bg-white flex items-center justify-between shrink-0 z-10">
+        <div className="flex items-center gap-3 min-w-0">
           {isDirect ? (
-            <div className="flex items-center gap-2.5 truncate">
-              <div className="relative shrink-0">
-                <div className="w-7 h-7 rounded-[6px] bg-zinc-950 text-white flex items-center justify-center text-xs font-bold">
-                  {displayName.charAt(0).toUpperCase()}
-                </div>
-                <span
-                  className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-[2px] border border-white ${
-                    isPartnerOnline ? 'bg-emerald-600' : 'bg-zinc-300'
-                  }`}
-                />
-              </div>
-              <span className="font-bold text-sm text-zinc-950 truncate">
-                @{displayName}
-              </span>
-              <span
-                className={`text-[10px] font-mono px-1.5 py-0.5 rounded-[4px] border ${
-                  isPartnerOnline
-                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                    : 'bg-zinc-50 text-zinc-500 border-zinc-200'
-                }`}
-              >
-                {isPartnerOnline ? 'ONLINE' : 'OFFLINE'}
-              </span>
-              {directPartner?.email && (
-                <span className="text-xs text-zinc-400 border-l border-zinc-200 pl-3 hidden sm:inline truncate">
-                  {directPartner.email}
+            <div className="flex items-center gap-2.5 min-w-0">
+              <UserAvatar
+                name={partnerDisplayTitle}
+                avatar={directPartner?.avatar}
+                size="sm"
+                variant="subtle"
+                isOnline={isPartnerOnline}
+                showStatusDot={true}
+              />
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="font-semibold text-sm text-zinc-950 truncate">
+                  {partnerDisplayTitle}
                 </span>
-              )}
+                <span className="text-xs text-zinc-400 truncate hidden sm:inline">
+                  {directPartner?.statusText ||
+                    (isPartnerOnline ? 'Online' : 'Offline')}
+                </span>
+              </div>
             </div>
           ) : (
-            <>
-              <div className="flex items-center gap-1.5 text-zinc-950 font-bold text-sm tracking-tight truncate">
-                <Hash className="w-4 h-4 text-zinc-500 shrink-0" />
-                <span className="truncate">{activeGroup.name}</span>
-              </div>
-
+            <div className="flex items-center gap-2 min-w-0">
+              <Hash className="w-4 h-4 text-zinc-400 shrink-0" />
+              <span className="font-semibold text-sm text-zinc-950 truncate">
+                {activeGroup.name}
+              </span>
               {activeGroup.description && (
-                <span className="text-xs text-zinc-500 border-l border-zinc-200 pl-3 truncate max-w-md hidden sm:inline">
+                <span className="text-xs text-zinc-400 truncate max-w-md hidden sm:inline pl-2 border-l border-zinc-200">
                   {activeGroup.description}
                 </span>
               )}
-            </>
+            </div>
           )}
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-1.5 shrink-0">
           {!isDirect && (
             <button
               type="button"
               onClick={() => setIsAddMemberOpen(true)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[6px] bg-white hover:bg-zinc-50 text-zinc-700 hover:text-zinc-950 text-xs font-medium border border-zinc-200 transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md hover:bg-zinc-100 text-zinc-600 hover:text-zinc-950 text-xs font-medium transition-colors cursor-pointer"
             >
-              <UserPlus className="w-3.5 h-3.5 text-zinc-600" />
-              <span className="hidden sm:inline">Invite</span>
+              <UserPlus className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Add people</span>
             </button>
           )}
 
           <button
             type="button"
             onClick={() => setIsDrawerOpen(!isDrawerOpen)}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-[6px] text-xs font-medium border transition-colors cursor-pointer ${
+            title="Conversation details"
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer ${
               isDrawerOpen
-                ? 'bg-zinc-950 text-white border-zinc-950'
-                : 'bg-[#fafafa] hover:bg-zinc-100 text-zinc-800 border-zinc-200'
+                ? 'bg-zinc-900 text-white'
+                : 'text-zinc-600 hover:text-zinc-950 hover:bg-zinc-100'
             }`}
           >
-            {isDirect ? (
-              <>
-                <Info className="w-3.5 h-3.5" />
-                <span>Profile</span>
-              </>
-            ) : (
-              <>
-                <Users className="w-3.5 h-3.5" />
-                <span className="font-mono">
-                  {activeGroup.members?.length || 0}
-                </span>
-                <Info className="w-3.5 h-3.5 ml-0.5" />
-              </>
-            )}
+            <Info className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">
+              {isDirect
+                ? 'Profile'
+                : `${activeGroup.members?.length || 0} members`}
+            </span>
           </button>
         </div>
       </header>
 
-      {/* Feed + Optional Inspector Drawer */}
+      {/* Main Conversation Stream + Optional Right Drawer */}
       <div className="flex-1 flex overflow-hidden relative">
         <div className="flex-1 flex flex-col justify-between overflow-hidden">
-          <div className="flex-1 overflow-y-auto px-6 py-6 space-y-2.5">
-            {/* Intro Banner */}
-            <div className="p-4 rounded-[8px] bg-[#fafafa] border border-zinc-200 mb-6 flex items-start justify-between gap-4">
-              <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-[6px] bg-white border border-zinc-200 text-zinc-950 flex items-center justify-center shrink-0 font-bold text-sm">
-                  {isDirect ? (
-                    displayName.charAt(0).toUpperCase()
-                  ) : (
-                    <Hash className="w-5 h-5" />
-                  )}
+          <div className="flex-1 overflow-y-auto px-6 py-6">
+            <div className="max-w-3xl mx-auto space-y-1">
+              {/* Quiet Conversation Start Header */}
+              <div className="pb-6 mb-4 border-b border-zinc-100">
+                <div className="text-sm font-semibold text-zinc-900">
+                  {isDirect
+                    ? partnerDisplayTitle
+                    : `#${activeGroup.name}`}
                 </div>
-                <div>
-                  <h1 className="text-base font-bold text-zinc-950">
-                    {isDirect
-                      ? `Direct conversation with @${displayName}`
-                      : `Welcome to #${activeGroup.name}`}
-                  </h1>
-                  <p className="text-xs text-zinc-600 mt-0.5 max-w-xl">
-                    {isDirect
-                      ? `This is your private 1-to-1 message history with @${displayName}. Messages include real-time delivery and read receipts.`
-                      : activeGroup.description ||
-                        `This is the start of the #${activeGroup.name} channel. Messages are synced in real time via Socket.IO with per-member read receipts.`}
-                  </p>
-                </div>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  {isDirect
+                    ? `Start of your direct conversation with ${partnerDisplayTitle}.`
+                    : activeGroup.description ||
+                      `Start of #${activeGroup.name}.`}
+                </p>
               </div>
-              {!isDirect && (
-                <button
-                  type="button"
-                  onClick={() => setIsAddMemberOpen(true)}
-                  className="px-3 py-1.5 rounded-[6px] bg-white hover:bg-zinc-100 border border-zinc-200 text-xs font-semibold text-zinc-900 shrink-0 cursor-pointer"
-                >
-                  + Add Teammates
-                </button>
-              )}
-            </div>
 
-            {/* Messages */}
-            {messages.length > 0 ? (
-              messages.map((msg, index) => {
-                const isNotification = msg.type === 'notification';
+              {/* Messages */}
+              {messages.length > 0 ? (
+                messages.map((msg, index) => {
+                  const prevMsg = index > 0 ? messages[index - 1] : null;
+                  const currentDay = msg.createdAt
+                    ? new Date(msg.createdAt).toDateString()
+                    : '';
+                  const prevDay = prevMsg?.createdAt
+                    ? new Date(prevMsg.createdAt).toDateString()
+                    : '';
+                  const showDateDivider = currentDay && currentDay !== prevDay;
 
-                if (isNotification) {
-                  return (
-                    <div
-                      key={msg._id || index}
-                      className="flex items-center justify-center my-2"
-                    >
-                      <div className="px-3 py-1 rounded-[4px] bg-[#fafafa] border border-zinc-200 text-[11px] font-mono text-zinc-600 flex items-center gap-2">
-                        <Terminal className="w-3 h-3 text-zinc-500" />
-                        <span>{msg.content}</span>
-                        <span className="text-[10px] text-zinc-400">
-                          {formatMessageTime(msg.createdAt)}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                }
-
-                const isMe = msg.sender?._id === currentUser?._id;
-                const senderInitial = msg.sender?.username
-                  ? msg.sender.username.charAt(0).toUpperCase()
-                  : 'U';
-
-                return (
-                  <div
-                    key={msg._id || index}
-                    className={`flex items-start gap-3 p-3 rounded-[6px] border transition-colors ${
-                      isMe
-                        ? 'bg-[#fafafa] border-zinc-200'
-                        : 'bg-white border-zinc-200/70 hover:border-zinc-300'
-                    }`}
-                  >
-                    <div
-                      className={`w-8 h-8 rounded-[6px] flex items-center justify-center text-xs font-bold shrink-0 mt-0.5 border ${
-                        isMe
-                          ? 'bg-zinc-950 text-white border-zinc-950'
-                          : 'bg-zinc-100 text-zinc-900 border-zinc-200'
-                      }`}
-                    >
-                      {senderInitial}
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-xs font-bold text-zinc-950">
-                          @{msg.sender?.username || 'user'}
-                        </span>
-                        {isMe && (
-                          <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-[2px] bg-zinc-200/80 text-zinc-800 font-medium">
-                            YOU
-                          </span>
+                  if (msg.type === 'notification') {
+                    return (
+                      <React.Fragment key={msg._id || index}>
+                        {showDateDivider && (
+                          <div className="flex items-center gap-3 my-5">
+                            <div className="flex-1 h-px bg-zinc-100" />
+                            <span className="text-[11px] font-medium text-zinc-400">
+                              {formatDateDivider(msg.createdAt)}
+                            </span>
+                            <div className="flex-1 h-px bg-zinc-100" />
+                          </div>
                         )}
-                        <span className="text-[11px] font-mono text-zinc-400">
-                          {formatMessageTime(msg.createdAt)}
-                        </span>
+                        <div className="py-1.5 text-center text-xs text-zinc-400">
+                          {msg.content}
+                        </div>
+                      </React.Fragment>
+                    );
+                  }
+
+                  const isMe =
+                    String(msg.sender?._id) === String(currentUser?._id);
+                  const senderUser = isMe
+                    ? { ...msg.sender, ...currentUser }
+                    : activeGroup.members?.find(
+                        (m) => String(m._id) === String(msg.sender?._id)
+                      ) || msg.sender;
+
+                  const isSameSenderAsPrev =
+                    prevMsg &&
+                    prevMsg.type !== 'notification' &&
+                    String(prevMsg.sender?._id) === String(msg.sender?._id) &&
+                    !showDateDivider &&
+                    Math.abs(
+                      new Date(msg.createdAt).getTime() -
+                        new Date(prevMsg.createdAt).getTime()
+                    ) <
+                      5 * 60 * 1000;
+
+                  const senderLabel =
+                    senderUser?.displayName ||
+                    senderUser?.username ||
+                    'User';
+
+                  return (
+                    <React.Fragment key={msg._id || index}>
+                      {showDateDivider && (
+                        <div className="flex items-center gap-3 my-5">
+                          <div className="flex-1 h-px bg-zinc-100" />
+                          <span className="text-[11px] font-medium text-zinc-400">
+                            {formatDateDivider(msg.createdAt)}
+                          </span>
+                          <div className="flex-1 h-px bg-zinc-100" />
+                        </div>
+                      )}
+
+                      <div
+                        className={`group flex items-start gap-3 px-2 py-1 rounded-lg hover:bg-zinc-50/80 transition-colors ${
+                          isSameSenderAsPrev ? 'mt-0.5' : 'mt-3.5'
+                        }`}
+                      >
+                        {isSameSenderAsPrev ? (
+                          <div className="w-8 shrink-0 text-[10px] text-zinc-300 opacity-0 group-hover:opacity-100 text-right pt-1 select-none">
+                            {formatMessageTime(msg.createdAt).replace(
+                              /\s?[AP]M/i,
+                              ''
+                            )}
+                          </div>
+                        ) : (
+                          <UserAvatar
+                            name={senderLabel}
+                            avatar={senderUser?.avatar}
+                            size="md"
+                            variant={isMe ? 'dark' : 'subtle'}
+                            className="mt-0.5"
+                          />
+                        )}
+
+                        <div className="flex-1 min-w-0">
+                          {!isSameSenderAsPrev && (
+                            <div className="flex items-baseline gap-2 mb-0.5">
+                              <span className="text-[13px] font-semibold text-zinc-900">
+                                {senderLabel}
+                              </span>
+                              <span className="text-[11px] text-zinc-400">
+                                {formatMessageTime(msg.createdAt)}
+                              </span>
+                            </div>
+                          )}
+
+                          <div className="flex items-end justify-between gap-3">
+                            <div className="text-[14px] text-zinc-800 leading-relaxed break-words whitespace-pre-wrap">
+                              {msg.content}
+                            </div>
+
+                            {isMe && (
+                              <div className="shrink-0 pb-0.5">
+                                {renderDeliveryStatus(msg)}
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       </div>
+                    </React.Fragment>
+                  );
+                })
+              ) : (
+                <div className="py-12 text-center text-xs text-zinc-400">
+                  No messages yet. Say hello below!
+                </div>
+              )}
 
-                      <div className="text-sm text-zinc-800 leading-relaxed break-words whitespace-pre-wrap">
-                        {msg.content}
-                      </div>
-                    </div>
-
-                    <div className="shrink-0 pt-0.5">
-                      {renderDeliveryStatus(msg)}
-                    </div>
-                  </div>
-                );
-              })
-            ) : (
-              <div className="text-center py-12 text-xs text-zinc-500 border border-dashed border-zinc-200 rounded-[6px] bg-[#fafafa]">
-                {isDirect
-                  ? `No messages with @${displayName} yet. Say hello below!`
-                  : `No messages in #${activeGroup.name} yet. Send the first message below.`}
-              </div>
-            )}
-
-            <div ref={messagesEndRef} />
+              <div ref={messagesEndRef} />
+            </div>
           </div>
 
-          {/* Typing Indicator */}
+          {/* Subtle Typing Indicator */}
           {typingArray.length > 0 && (
-            <div className="px-6 py-1.5 text-xs font-mono text-zinc-600 flex items-center gap-2 bg-[#fafafa] border-t border-zinc-200">
-              <span className="w-2 h-2 rounded-[2px] bg-blue-600 animate-pulse" />
+            <div className="max-w-3xl w-full mx-auto px-6 pb-1 text-xs text-zinc-400 flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-zinc-400 animate-pulse" />
               <span>
                 {typingArray.join(', ')}{' '}
                 {typingArray.length === 1 ? 'is' : 'are'} typing...
@@ -490,87 +651,67 @@ export default function ChannelChatView({
             </div>
           )}
 
-          {/* Composer */}
-          <div className="p-4 bg-[#fafafa] border-t border-zinc-200">
-            <form
-              onSubmit={handleSendMessage}
-              className="bg-white border border-zinc-200 focus-within:border-zinc-900 rounded-[8px] transition-colors overflow-hidden"
-            >
-              <div className="p-3">
+          {/* Minimalist Single-Bar Composer */}
+          <div className="px-6 pb-5 pt-2 bg-white">
+            <div className="max-w-3xl mx-auto relative">
+              {showEmojiPicker && (
+                <div className="absolute bottom-14 left-0 bg-white border border-zinc-200 rounded-lg p-1.5 flex items-center gap-1 z-20">
+                  {QUICK_EMOJIS.map((emoji) => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      onClick={() => {
+                        setInputText((prev) => prev + emoji);
+                        setShowEmojiPicker(false);
+                      }}
+                      className="w-8 h-8 rounded-md hover:bg-zinc-100 flex items-center justify-center text-base transition-colors cursor-pointer"
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <form
+                onSubmit={handleSendMessage}
+                className="flex items-end gap-2 px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 focus-within:bg-white focus-within:border-zinc-400 transition-colors"
+              >
+                <button
+                  type="button"
+                  onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                  title="Add emoji"
+                  className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/50 transition-colors cursor-pointer shrink-0"
+                >
+                  <Smile className="w-4 h-4" />
+                </button>
+
                 <textarea
-                  rows={2}
+                  rows={1}
                   value={inputText}
                   onChange={handleInputChange}
                   onKeyDown={handleKeyDown}
                   placeholder={
                     isDirect
-                      ? `Message @${displayName}... (Enter to send, Shift+Enter for newline)`
-                      : `Message #${activeGroup.name}... (Enter to send, Shift+Enter for newline)`
+                      ? `Message ${partnerDisplayTitle}...`
+                      : `Message #${activeGroup.name}...`
                   }
-                  className="w-full bg-transparent text-zinc-950 placeholder-zinc-400 text-sm focus:outline-none resize-none leading-relaxed"
+                  className="flex-1 bg-transparent text-zinc-900 placeholder-zinc-400 text-sm focus:outline-none resize-none py-1 max-h-32 leading-relaxed"
                 />
-              </div>
-
-              <div className="px-3 py-2 bg-[#fafafa] border-t border-zinc-200 flex items-center justify-between">
-                <div className="flex items-center gap-1 text-zinc-500">
-                  <button
-                    type="button"
-                    title="Bold"
-                    onClick={() => setInputText((prev) => prev + '**bold**')}
-                    className="p-1.5 rounded-[4px] hover:text-zinc-950 hover:bg-zinc-200/60 transition-colors cursor-pointer"
-                  >
-                    <Bold className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    title="Italic"
-                    onClick={() => setInputText((prev) => prev + '_italic_')}
-                    className="p-1.5 rounded-[4px] hover:text-zinc-950 hover:bg-zinc-200/60 transition-colors cursor-pointer"
-                  >
-                    <Italic className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    title="Code"
-                    onClick={() => setInputText((prev) => prev + '`code`')}
-                    className="p-1.5 rounded-[4px] hover:text-zinc-950 hover:bg-zinc-200/60 transition-colors cursor-pointer"
-                  >
-                    <Code className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    title="Link"
-                    onClick={() => setInputText((prev) => prev + '[link](url)')}
-                    className="p-1.5 rounded-[4px] hover:text-zinc-950 hover:bg-zinc-200/60 transition-colors cursor-pointer"
-                  >
-                    <LinkIcon className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    title="Reaction"
-                    onClick={() => setInputText((prev) => prev + ' 👍')}
-                    className="p-1.5 rounded-[4px] hover:text-zinc-950 hover:bg-zinc-200/60 transition-colors cursor-pointer"
-                  >
-                    <Smile className="w-3.5 h-3.5" />
-                  </button>
-                </div>
 
                 <button
                   type="submit"
                   disabled={!inputText.trim() || isSending}
-                  className="px-3.5 py-1.5 rounded-[6px] text-xs font-semibold text-white bg-zinc-950 hover:bg-zinc-800 border border-zinc-950 disabled:opacity-40 transition-colors flex items-center gap-1.5 cursor-pointer"
+                  title="Send message"
+                  className="w-8 h-8 rounded-lg text-white bg-zinc-900 hover:bg-zinc-800 disabled:opacity-30 transition-colors flex items-center justify-center shrink-0 cursor-pointer"
                 >
                   {isSending ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   ) : (
-                    <>
-                      <span>Send</span>
-                      <Send className="w-3 h-3" />
-                    </>
+                    <ArrowUp className="w-4 h-4" />
                   )}
                 </button>
-              </div>
-            </form>
+              </form>
+            </div>
           </div>
         </div>
 

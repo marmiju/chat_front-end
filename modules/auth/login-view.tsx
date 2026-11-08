@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { authService } from './auth.service';
-import { ArrowRight, Loader2, Sparkles, Lock, Mail } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 
 export default function LoginView() {
   const router = useRouter();
@@ -26,150 +26,112 @@ export default function LoginView() {
       } else {
         throw new Error('No authentication token received');
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       setError(
-        err.message || 'Login failed. Please verify your email and password.'
+        err instanceof Error
+          ? err.message
+          : 'Sign in failed. Please check your credentials.'
       );
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleFillDemo = () => {
-    setEmail('test@test.com');
-    setPassword('123456');
-    setError(null);
-  };
-
   return (
-    <div className="min-h-screen bg-[#fafafa] text-zinc-950 flex flex-col justify-between px-4 sm:px-6 lg:px-8 py-8">
-      {/* Top Bar */}
-      <div className="max-w-6xl w-full mx-auto flex items-center justify-between">
+    <div className="min-h-screen bg-white text-zinc-900 flex flex-col justify-between px-4 py-8">
+      <header className="max-w-5xl w-full mx-auto flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-[6px] bg-zinc-950 text-white flex items-center justify-center font-mono text-xs font-bold">
-            NP
+          <div className="w-6 h-6 rounded-md bg-zinc-900 text-white flex items-center justify-center text-xs font-semibold">
+            N
           </div>
-          <span className="font-bold text-sm tracking-tight text-zinc-950">
+          <span className="font-semibold text-sm tracking-tight">
             NexusPulse
           </span>
         </Link>
         <Link
           href="/register"
-          className="text-xs font-medium text-zinc-600 hover:text-zinc-950 border border-zinc-200 bg-white px-3 py-1.5 rounded-[6px] transition-colors"
+          className="text-xs font-medium text-zinc-600 hover:text-zinc-950 transition-colors"
         >
-          Create Account
+          Create account
         </Link>
-      </div>
+      </header>
 
-      {/* Main Card */}
-      <div className="w-full max-w-md mx-auto my-12">
-        <div className="mb-6">
-          <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-[4px] bg-white border border-zinc-200 text-[11px] font-mono text-zinc-600 mb-3">
-            <span>AUTH MODULE • /api/user/login</span>
-          </div>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-950">
-            Sign in to workspace
+      <main className="w-full max-w-sm mx-auto my-12">
+        <div className="mb-6 text-center">
+          <h1 className="text-xl font-semibold tracking-tight text-zinc-950">
+            Welcome back
           </h1>
-          <p className="text-xs sm:text-sm text-zinc-600 mt-1">
-            Enter your account credentials to connect to real-time channels.
+          <p className="text-xs text-zinc-500 mt-1">
+            Sign in to continue to your workspace
           </p>
         </div>
 
-        <div className="bg-white border border-zinc-200 rounded-[8px] p-6 sm:p-7">
-          {error && (
-            <div className="mb-5 p-3 rounded-[6px] bg-red-50 border border-red-200 text-red-700 text-xs flex items-start gap-2">
-              <span className="w-1.5 h-1.5 rounded-[2px] bg-red-600 mt-1.5 shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-zinc-800 mb-1.5">
-                Email Address
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-400">
-                  <Mail className="w-4 h-4" />
-                </div>
-                <input
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="name@company.com"
-                  className="w-full pl-9 pr-3.5 py-2.5 rounded-[6px] bg-white border border-zinc-200 text-zinc-950 placeholder-zinc-400 text-sm focus:outline-none focus:border-zinc-900 transition-colors"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-zinc-800 mb-1.5">
-                Password
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-400">
-                  <Lock className="w-4 h-4" />
-                </div>
-                <input
-                  type="password"
-                  required
-                  minLength={6}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full pl-9 pr-3.5 py-2.5 rounded-[6px] bg-white border border-zinc-200 text-zinc-950 placeholder-zinc-400 text-sm focus:outline-none focus:border-zinc-900 transition-colors"
-                />
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full py-2.5 px-4 rounded-[6px] text-xs font-semibold text-white bg-zinc-950 hover:bg-zinc-800 border border-zinc-950 transition-colors flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-            >
-              {isLoading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Authenticating...</span>
-                </>
-              ) : (
-                <>
-                  <span>Sign In to Workspace</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </>
-              )}
-            </button>
-          </form>
-
-          {/* Demo Autofill */}
-          <div className="mt-5 pt-4 border-t border-zinc-200">
-            <button
-              type="button"
-              onClick={handleFillDemo}
-              className="w-full py-2 px-3 rounded-[6px] border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-zinc-700 text-xs font-medium flex items-center justify-center gap-2 transition-colors cursor-pointer"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-              <span>Autofill Demo Credentials (test@test.com)</span>
-            </button>
+        {error && (
+          <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs">
+            {error}
           </div>
-        </div>
+        )}
 
-        <p className="mt-5 text-center text-xs text-zinc-600">
-          New to NexusPulse?{' '}
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-zinc-700 mb-1.5">
+              Email
+            </label>
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+              className="w-full px-3 py-2 rounded-lg bg-white border border-zinc-200 text-zinc-950 placeholder-zinc-400 text-sm focus:outline-none focus:border-zinc-900 transition-colors"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-zinc-700 mb-1.5">
+              Password
+            </label>
+            <input
+              type="password"
+              required
+              minLength={6}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              className="w-full px-3 py-2 rounded-lg bg-white border border-zinc-200 text-zinc-950 placeholder-zinc-400 text-sm focus:outline-none focus:border-zinc-900 transition-colors"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={isLoading}
+            className="w-full py-2.5 px-4 rounded-lg text-xs font-semibold text-white bg-zinc-900 hover:bg-zinc-800 transition-colors flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+          >
+            {isLoading ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Signing in...</span>
+              </>
+            ) : (
+              <span>Sign in</span>
+            )}
+          </button>
+        </form>
+
+        <p className="mt-6 text-center text-xs text-zinc-500">
+          Don&apos;t have an account?{' '}
           <Link
             href="/register"
-            className="font-semibold text-zinc-950 hover:underline"
+            className="font-medium text-zinc-900 hover:underline"
           >
-            Create a workspace account
+            Sign up
           </Link>
         </p>
-      </div>
+      </main>
 
-      <div className="text-center text-[11px] font-mono text-zinc-400">
-        JWT Bearer Session • Express & Socket.IO Handshake
-      </div>
+      <footer className="text-center text-[11px] text-zinc-400">
+        NexusPulse
+      </footer>
     </div>
   );
 }
-

@@ -6,12 +6,20 @@ import { authService } from '@/modules/auth/auth.service';
 import { groupsService } from './groups.service';
 import { User } from '@/modules/core/types';
 import { useWorkspace } from '@/modules/workspace/workspace-provider';
+import UserAvatar from '@/modules/core/user-avatar';
 import { MessageSquare, Search, X, Loader2, ArrowRight } from 'lucide-react';
 
 interface NewDirectMessageModalProps {
   isOpen: boolean;
   onClose: () => void;
-  teammates?: Array<{ _id: string; username: string; email: string }>;
+  teammates?: Array<{
+    _id: string;
+    username: string;
+    email: string;
+    displayName?: string;
+    avatar?: string;
+    statusText?: string;
+  }>;
 }
 
 export default function NewDirectMessageModal({
@@ -144,14 +152,18 @@ export default function NewDirectMessageModal({
                   className="flex items-center justify-between p-2.5 rounded-[6px] bg-[#fafafa] border border-zinc-200 hover:border-zinc-300 transition-colors"
                 >
                   <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-7 h-7 rounded-[4px] bg-zinc-900 text-white flex items-center justify-center text-xs font-bold shrink-0">
-                      {user.username.charAt(0).toUpperCase()}
-                    </div>
+                    <UserAvatar
+                      name={user.displayName || user.username}
+                      avatar={user.avatar}
+                      size="sm"
+                      variant="dark"
+                    />
                     <div className="min-w-0">
                       <div className="text-xs font-bold text-zinc-950 truncate">
-                        @{user.username}
+                        {user.displayName || `@${user.username}`}
                       </div>
                       <div className="text-[11px] text-zinc-500 truncate">
+                        {user.displayName ? `@${user.username} · ` : ''}
                         {user.email}
                       </div>
                     </div>

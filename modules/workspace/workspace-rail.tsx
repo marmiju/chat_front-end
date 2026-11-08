@@ -5,13 +5,18 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { User } from '@/modules/core/types';
 import { authService } from '@/modules/auth/auth.service';
-import { Hash, Home, LogOut, Terminal } from 'lucide-react';
+import UserAvatar from '@/modules/core/user-avatar';
+import { Hash, Home, LogOut, Settings } from 'lucide-react';
 
 interface WorkspaceRailProps {
   currentUser: User | null;
+  onOpenProfile?: () => void;
 }
 
-export default function WorkspaceRail({ currentUser }: WorkspaceRailProps) {
+export default function WorkspaceRail({
+  currentUser,
+  onOpenProfile,
+}: WorkspaceRailProps) {
   const router = useRouter();
 
   const handleLogout = () => {
@@ -19,10 +24,6 @@ export default function WorkspaceRail({ currentUser }: WorkspaceRailProps) {
     router.push('/login');
     router.refresh();
   };
-
-  const userInitial = currentUser?.username
-    ? currentUser.username.charAt(0).toUpperCase()
-    : 'U';
 
   return (
     <aside className="w-14 bg-[#fafafa] border-r border-zinc-200 flex flex-col items-center justify-between py-3 select-none shrink-0 z-30">
@@ -59,6 +60,15 @@ export default function WorkspaceRail({ currentUser }: WorkspaceRailProps) {
       <div className="flex flex-col items-center gap-2.5 w-full">
         <button
           type="button"
+          onClick={onOpenProfile}
+          title="Edit Profile & Settings"
+          className="w-9 h-9 rounded-[6px] text-zinc-500 hover:text-zinc-950 hover:bg-zinc-100 border border-transparent hover:border-zinc-200 flex items-center justify-center transition-colors cursor-pointer"
+        >
+          <Settings className="w-4 h-4" />
+        </button>
+
+        <button
+          type="button"
           onClick={handleLogout}
           title="Sign Out"
           className="w-9 h-9 rounded-[6px] text-zinc-500 hover:text-red-600 hover:bg-red-50 border border-transparent hover:border-red-200 flex items-center justify-center transition-colors cursor-pointer"
@@ -66,17 +76,23 @@ export default function WorkspaceRail({ currentUser }: WorkspaceRailProps) {
           <LogOut className="w-4 h-4" />
         </button>
 
-        <div
-          title={`${currentUser?.username || 'User'} (${
-            currentUser?.email || ''
-          })`}
-          className="relative"
+        <button
+          type="button"
+          onClick={onOpenProfile}
+          title={`Edit Profile: ${
+            currentUser?.displayName || currentUser?.username || 'User'
+          } (${currentUser?.email || ''})`}
+          className="cursor-pointer rounded-[6px] hover:ring-2 hover:ring-zinc-300 transition-all"
         >
-          <div className="w-9 h-9 rounded-[6px] bg-zinc-100 border border-zinc-200 text-zinc-900 flex items-center justify-center font-bold text-xs">
-            {userInitial}
-          </div>
-          <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-600 border border-white rounded-[2px]" />
-        </div>
+          <UserAvatar
+            name={currentUser?.displayName || currentUser?.username}
+            avatar={currentUser?.avatar}
+            size="lg"
+            variant="subtle"
+            isOnline={true}
+            showStatusDot={true}
+          />
+        </button>
       </div>
     </aside>
   );

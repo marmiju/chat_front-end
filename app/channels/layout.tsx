@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import { redirect } from 'next/navigation';
 import { getServerSession, fetchServerGroups } from '@/lib/api-server';
 import WorkspaceProvider from '@/modules/workspace/workspace-provider';
@@ -7,7 +8,7 @@ export const metadata = {
   description: 'Team channels and real-time collaboration',
 };
 
-export default async function ChannelsLayout({
+async function AuthenticatedWorkspace({
   children,
 }: {
   children: React.ReactNode;
@@ -24,5 +25,17 @@ export default async function ChannelsLayout({
     <WorkspaceProvider initialGroups={groups} currentUser={user}>
       {children}
     </WorkspaceProvider>
+  );
+}
+
+export default function ChannelsLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-white" />}>
+      <AuthenticatedWorkspace>{children}</AuthenticatedWorkspace>
+    </Suspense>
   );
 }

@@ -2,12 +2,33 @@ export interface User {
   _id: string;
   username: string;
   email: string;
+  displayName?: string;
+  avatar?: string;
+  bio?: string;
+  title?: string;
+  statusText?: string;
+  phone?: string;
   token?: string;
   isAdmin?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface UpdateProfilePayload {
+  username?: string;
+  email?: string;
+  displayName?: string;
+  avatar?: string;
+  bio?: string;
+  title?: string;
+  statusText?: string;
+  phone?: string;
+  currentPassword?: string;
+  newPassword?: string;
 }
 
 export interface Delivery {
-  user: string | { _id: string; username: string };
+  user: string | { _id: string; username: string; displayName?: string; avatar?: string };
   status: 'sent' | 'delivered' | 'read';
   at: string;
 }
@@ -18,6 +39,11 @@ export interface Message {
     _id: string;
     username: string;
     email: string;
+    displayName?: string;
+    avatar?: string;
+    bio?: string;
+    title?: string;
+    statusText?: string;
   };
   content: string;
   group: string | { _id: string; name: string };
@@ -31,6 +57,12 @@ export interface GroupMember {
   _id: string;
   username: string;
   email: string;
+  displayName?: string;
+  avatar?: string;
+  bio?: string;
+  title?: string;
+  statusText?: string;
+  phone?: string;
 }
 
 export interface Group {

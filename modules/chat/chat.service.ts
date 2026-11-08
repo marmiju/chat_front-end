@@ -44,8 +44,18 @@ export const chatService = {
   ): void {
     if (!unreadIds.length) return;
     const socket = getSocket(currentUser);
-    if (socket) {
+    if (socket && socket.connected) {
       socket.emit('mark_as_read', { groupId, unreadIds });
+    } else {
+      if (socket) {
+        socket.emit('mark_as_read', { groupId, unreadIds });
+      }
+      httpRequest<Message[]>(`/api/chats/${groupId}/read`, {
+        method: 'POST',
+        body: JSON.stringify({ unreadIds }),
+      }).catch(() => {
+        // Ignore fallback error
+      });
     }
   },
 

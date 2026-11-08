@@ -5,6 +5,7 @@ import { authService } from '@/modules/auth/auth.service';
 import { groupsService } from './groups.service';
 import { Group, User } from '@/modules/core/types';
 import { useWorkspace } from '@/modules/workspace/workspace-provider';
+import UserAvatar from '@/modules/core/user-avatar';
 import { UserPlus, Search, X, Loader2, Check } from 'lucide-react';
 
 interface AddMemberModalProps {
@@ -18,22 +19,40 @@ export default function AddMemberModal({
   onClose,
   channel,
 }: AddMemberModalProps) {
-  const { updateGroup } = useWorkspace();
+  const { groups, updateGroup } = useWorkspace();
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<User[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [addingUserId, setAddingUserId] = useState<string | null>(null);
+  const [addedUserIds, setAddedUserIds] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  const liveChannel =
+    groups.find((g) => String(g._id) === String(channel._id)) || channel;
 
   useEffect(() => {
     if (!isOpen) {
       setSearchQuery('');
       setSearchResults([]);
+      setAddedUserIds(new Set());
       setError(null);
       setSuccessMsg(null);
+      return;
     }
-  }, [isOpen]);
+
+    // Refresh channel members when modal opens so existingMemberIds is always up to date
+    groupsService
+      .getGroupById(channel._id)
+      .then((freshGroup) => {
+        if (freshGroup?._id) {
+          updateGroup(freshGroup);
+        }
+      })
+      .catch(() => {
+        // Keep current group state on error
+      });
+  }, [isOpen, channel._id, updateGroup]);
 
   useEffect(() => {
     if (!searchQuery.trim()) {
@@ -59,23 +78,38 @@ export default function AddMemberModal({
 
   if (!isOpen) return null;
 
-  const existingMemberIds = new Set(channel.members.map((m) => m._id));
+  const existingMemberIds = new Set<string>([
+    ...(liveChannel.members || []).map((m) =>
+      String(typeof m === 'string' ? m : m._id)
+    ),
+    ...Array.from(addedUserIds),
+  ]);
 
   const handleAddUser = async (user: User) => {
-    setAddingUserId(user._id);
+    const targetId = String(user._id);
+    if (existingMemberIds.has(targetId) || addingUserId) {
+      setError(`@${user.username} is already a member of #${liveChannel.name}`);
+      return;
+    }
+
+    setAddingUserId(targetId);
     setError(null);
     setSuccessMsg(null);
 
     try {
-      const res = await groupsService.joinGroup(channel._id, user._id);
+      const res = await groupsService.joinGroup(liveChannel._id, targetId);
+      setAddedUserIds((prev) => new Set(prev).add(targetId));
       if (res?.group) {
         updateGroup(res.group);
       }
-      setSuccessMsg(`Added @${user.username} to #${channel.name}`);
+      setSuccessMsg(`Added @${user.username} to #${liveChannel.name}`);
       setTimeout(() => {
         onClose();
       }, 650);
     } catch (err: any) {
+      if (err?.status === 409) {
+        setAddedUserIds((prev) => new Set(prev).add(targetId));
+      }
       setError(err.message || 'Failed to add user to channel');
     } finally {
       setAddingUserId(null);
@@ -140,23 +174,27 @@ export default function AddMemberModal({
         <div className="max-h-60 overflow-y-auto space-y-1.5 mb-4 pr-0.5">
           {searchResults.length > 0 ? (
             searchResults.map((user) => {
-              const isAlreadyMember = existingMemberIds.has(user._id);
-              const isAdding = addingUserId === user._id;
+              const isAlreadyMember = existingMemberIds.has(String(user._id));
+              const isAdding = addingUserId === String(user._id);
 
               return (
                 <div
                   key={user._id}
                   className="flex items-center justify-between p-2.5 rounded-[6px] bg-[#fafafa] border border-zinc-200"
                 >
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-7 h-7 rounded-[4px] bg-zinc-900 text-white flex items-center justify-center text-xs font-bold">
-                      {user.username.charAt(0).toUpperCase()}
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold text-zinc-950">
-                        @{user.username}
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <UserAvatar
+                      name={user.displayName || user.username}
+                      avatar={user.avatar}
+                      size="sm"
+                      variant="dark"
+                    />
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold text-zinc-950 truncate">
+                        {user.displayName || `@${user.username}`}
                       </div>
-                      <div className="text-[11px] text-zinc-500">
+                      <div className="text-[11px] text-zinc-500 truncate">
+                        {user.displayName ? `@${user.username} · ` : ''}
                         {user.email}
                       </div>
                     </div>

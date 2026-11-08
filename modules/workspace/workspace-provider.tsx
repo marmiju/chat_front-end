@@ -9,13 +9,17 @@ import React, {
 } from 'react';
 import { Group, User, OnlineUser } from '@/modules/core/types';
 import { getSocket } from '@/modules/core/socket-client';
+import { getClientUser, updateClientUser } from '@/modules/core/storage';
+import { authService } from '@/modules/auth/auth.service';
 import { groupsService } from '@/modules/groups/groups.service';
-import WorkspaceRail from './workspace-rail';
 import ChannelsSidebar from '@/modules/groups/channels-sidebar';
+import ProfileSettingsModal from './profile-settings-modal';
 
 interface WorkspaceContextType {
   onlineUsers: OnlineUser[];
   currentUser: User | null;
+  updateCurrentUser: (user: User) => void;
+  openProfileModal: () => void;
   groups: Group[];
   setGroups: React.Dispatch<React.SetStateAction<Group[]>>;
   addGroup: (group: Group) => void;
@@ -27,6 +31,8 @@ interface WorkspaceContextType {
 const WorkspaceContext = createContext<WorkspaceContextType>({
   onlineUsers: [],
   currentUser: null,
+  updateCurrentUser: () => {},
+  openProfileModal: () => {},
   groups: [],
   setGroups: () => {},
   addGroup: () => {},
@@ -39,20 +45,79 @@ export const useWorkspace = () => useContext(WorkspaceContext);
 
 export default function WorkspaceProvider({
   initialGroups,
-  currentUser,
+  currentUser: initialCurrentUser,
   children,
 }: {
   initialGroups: Group[];
   currentUser: User | null;
   children: React.ReactNode;
 }) {
+  const [currentUser, setCurrentUser] = useState<User | null>(
+    initialCurrentUser
+  );
   const [groups, setGroups] = useState<Group[]>(initialGroups || []);
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+
+  const applyUserUpdateToGroups = useCallback((updatedUser: User) => {
+    setGroups((prev) =>
+      prev.map((g) => ({
+        ...g,
+        admin:
+          typeof g.admin === 'object' && g.admin?._id === updatedUser._id
+            ? { ...g.admin, ...updatedUser }
+            : g.admin,
+        members: g.members?.map((m) =>
+          m._id === updatedUser._id ? { ...m, ...updatedUser } : m
+        ),
+      }))
+    );
+  }, []);
+
+  const updateCurrentUser = useCallback(
+    (updatedUser: User) => {
+      setCurrentUser((prev) => {
+        const merged = { ...prev, ...updatedUser };
+        updateClientUser(merged);
+        return merged;
+      });
+      applyUserUpdateToGroups(updatedUser);
+    },
+    [applyUserUpdateToGroups]
+  );
+
+  useEffect(() => {
+    const stored = getClientUser();
+    if (stored && (!initialCurrentUser || stored._id === initialCurrentUser._id)) {
+      setCurrentUser((prev) => ({ ...prev, ...stored }));
+    }
+    authService
+      .getProfile()
+      .then((fresh) => {
+        setCurrentUser((prev) => ({ ...prev, ...fresh }));
+        applyUserUpdateToGroups(fresh);
+      })
+      .catch(() => {
+        // Keep existing user if offline
+      });
+    groupsService
+      .getGroups()
+      .then((freshGroups) => {
+        if (Array.isArray(freshGroups)) {
+          setGroups(freshGroups);
+        }
+      })
+      .catch(() => {
+        // Keep initialGroups if offline
+      });
+  }, [initialCurrentUser, applyUserUpdateToGroups]);
 
   const addGroup = useCallback(
     (group: Group) => {
       setGroups((prev) => {
-        if (prev.some((g) => g._id === group._id)) return prev;
+        if (prev.some((g) => g._id === group._id)) {
+          return prev.map((g) => (g._id === group._id ? group : g));
+        }
         return [...prev, group];
       });
       groupsService.joinGroupRoomSocket(currentUser, group._id);
@@ -61,7 +126,11 @@ export default function WorkspaceProvider({
   );
 
   const updateGroup = useCallback((group: Group) => {
-    setGroups((prev) => prev.map((g) => (g._id === group._id ? group : g)));
+    setGroups((prev) => {
+      const exists = prev.some((g) => g._id === group._id);
+      if (!exists) return [...prev, group];
+      return prev.map((g) => (g._id === group._id ? group : g));
+    });
   }, []);
 
   const removeGroup = useCallback((groupId: string) => {
@@ -161,6 +230,18 @@ export default function WorkspaceProvider({
       }
     };
 
+    const handleUserUpdated = (updatedUser: User) => {
+      if (!updatedUser?._id) return;
+      applyUserUpdateToGroups(updatedUser);
+      if (updatedUser._id === currentUser._id) {
+        setCurrentUser((prev) => {
+          const merged = { ...prev, ...updatedUser };
+          updateClientUser(merged);
+          return merged;
+        });
+      }
+    };
+
     socket.on('initialonline', handleInitialOnline);
     socket.on('online_member', handleOnlineMember);
     socket.on('user_offline', handleUserOffline);
@@ -171,6 +252,7 @@ export default function WorkspaceProvider({
     socket.on('member_removed', handleMemberRemoved);
     socket.on('group_deleted', handleGroupDeleted);
     socket.on('removed_from_group', handleRemovedFromGroup);
+    socket.on('user_updated', handleUserUpdated);
 
     return () => {
       socket.off('initialonline', handleInitialOnline);
@@ -183,14 +265,23 @@ export default function WorkspaceProvider({
       socket.off('member_removed', handleMemberRemoved);
       socket.off('group_deleted', handleGroupDeleted);
       socket.off('removed_from_group', handleRemovedFromGroup);
+      socket.off('user_updated', handleUserUpdated);
     };
-  }, [currentUser, addGroup, updateGroup, removeGroup]);
+  }, [
+    currentUser,
+    addGroup,
+    updateGroup,
+    removeGroup,
+    applyUserUpdateToGroups,
+  ]);
 
   return (
     <WorkspaceContext.Provider
       value={{
         onlineUsers,
         currentUser,
+        updateCurrentUser,
+        openProfileModal: () => setIsProfileModalOpen(true),
         groups,
         setGroups,
         addGroup,
@@ -199,8 +290,7 @@ export default function WorkspaceProvider({
         removeMemberFromLocalGroup,
       }}
     >
-      <div className="h-screen w-screen flex bg-white text-zinc-950 overflow-hidden">
-        <WorkspaceRail currentUser={currentUser} />
+      <div className="h-screen w-screen flex bg-white text-zinc-900 overflow-hidden">
         <ChannelsSidebar
           groups={groups}
           currentUser={currentUser}
@@ -210,6 +300,13 @@ export default function WorkspaceProvider({
           {children}
         </main>
       </div>
+
+      <ProfileSettingsModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+        currentUser={currentUser}
+        onProfileUpdated={updateCurrentUser}
+      />
     </WorkspaceContext.Provider>
   );
 }
