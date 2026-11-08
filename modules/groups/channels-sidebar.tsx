@@ -12,6 +12,7 @@ import {
 import { authService } from '@/modules/auth/auth.service';
 import { useWorkspace } from '@/modules/workspace/workspace-provider';
 import UserAvatar from '@/modules/core/user-avatar';
+import { ThemeToggle } from '@/modules/core/theme-provider';
 import {
   Hash,
   Plus,
@@ -129,7 +130,8 @@ export default function ChannelsSidebar({
               </span>
             </Link>
 
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-0.5">
+              <ThemeToggle />
               <button
                 type="button"
                 onClick={togglePushNotifications}

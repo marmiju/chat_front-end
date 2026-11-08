@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { authService } from './auth.service';
+import { ThemeToggle } from '@/modules/core/theme-provider';
 import { Loader2 } from 'lucide-react';
 
 export default function RegisterView() {
@@ -53,12 +54,15 @@ export default function RegisterView() {
             NexusPulse
           </span>
         </Link>
-        <Link
-          href="/login"
-          className="text-xs font-medium text-zinc-600 hover:text-zinc-950 transition-colors"
-        >
-          Sign in
-        </Link>
+        <div className="flex items-center gap-3">
+          <ThemeToggle />
+          <Link
+            href="/login"
+            className="text-xs font-medium text-zinc-600 hover:text-zinc-950 transition-colors"
+          >
+            Sign in
+          </Link>
+        </div>
       </header>
 
       <main className="w-full max-w-sm mx-auto my-12">

@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { getClientToken, getClientUser } from '@/modules/core/storage';
+import { ThemeToggle } from '@/modules/core/theme-provider';
 import { Hash, MessageSquare, CheckCheck, ArrowRight } from 'lucide-react';
 
 export default function LandingView() {
@@ -32,7 +33,8 @@ export default function LandingView() {
           </span>
         </Link>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5">
+          <ThemeToggle />
           {loggedInUser ? (
             <Link
               href="/channels"
